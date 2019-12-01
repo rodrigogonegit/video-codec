@@ -1,4 +1,5 @@
 import argparse
+from video_player import VideoPlayer
 from yuv_player import YuvPlayer
 
 parser = argparse.ArgumentParser()
