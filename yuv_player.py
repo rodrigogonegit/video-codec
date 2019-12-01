@@ -1,6 +1,4 @@
 import logging
-import os
-import queue
 import re
 from threading import Thread
 
@@ -166,18 +164,14 @@ class YuvDecoder(Thread):
         self.__file_object.readline()
         return raw_frame_buffer
 
-    def __444yuv_to_rgb(self, y_plane, u_plane, v_plane):
+    def __concatenate_planes_to_444yuv_frame(self, y_plane, u_plane, v_plane):
         """
-            Convert YUV 4:4:4 frame to RGB
+            Builds a YUV frame from the 3 planes
         :return: numpy array representing RGB image
         """
         np.set_printoptions(formatter={'int': hex})
 
-        plane_y = y_plane.reshape((y_plane.shape[0], y_plane.shape[1], 1))
-        plane_u = u_plane.reshape((u_plane.shape[0], u_plane.shape[1], 1))
-        plane_v = v_plane.reshape((v_plane.shape[0], v_plane.shape[1], 1))
-
-        yuv = np.concatenate((plane_y, plane_u, plane_v), axis=2)
+        yuv = np.concatenate((y_plane, u_plane, v_plane), axis=2)
 
         # Save processed YUV planes
         self.frames.append(yuv)
@@ -185,11 +179,12 @@ class YuvDecoder(Thread):
         # Use OpenCV to convert color since the implementation is MUCH faster
         if self.__convert_to_bgr:
             yuv = cv.cvtColor(yuv, cv.COLOR_YUV2BGR)
+
         return yuv
 
-    def __split_yuv_channels_planar_mode(self, frame_buffer):
+    def __extract_yuv_planes(self, frame_buffer):
         """
-            Splits incoming frame buffer into YUV plaves, converting the input to 4:4:4
+            Splits incoming frame buffer into YUV planes, converting the input to 4:4:4 format
         :return:
         """
         buf = np.frombuffer(frame_buffer, dtype=np.uint8)
@@ -201,7 +196,7 @@ class YuvDecoder(Thread):
             "4:2:2": int(plane_size / 2),
             "4:2:0": int(plane_size / 4),
         }
-        # print('Step:', uv_sizes_dict[self.__color_space])
+
         y_plane = buf[0:plane_size]
         u_plane = buf[plane_size:plane_size + uv_sizes_dict[self.color_space]]
         v_plane = buf[plane_size + uv_sizes_dict[self.color_space]:plane_size + uv_sizes_dict[self.color_space] * 2]
@@ -217,9 +212,9 @@ class YuvDecoder(Thread):
             u_plane = np.repeat(u_plane, 2, axis=0).repeat(2, axis=1)
             v_plane = np.repeat(v_plane, 2, axis=0).repeat(2, axis=1)
 
-        y_plane.shape = (self.frame_height, self.frame_width)
-        u_plane.shape = (self.frame_height, self.frame_width)
-        v_plane.shape = (self.frame_height, self.frame_width)
+        y_plane.shape = (self.frame_height, self.frame_width, 1)
+        u_plane.shape = (self.frame_height, self.frame_width, 1)
+        v_plane.shape = (self.frame_height, self.frame_width, 1)
 
         return y_plane, u_plane, v_plane
 
@@ -232,8 +227,8 @@ class YuvDecoder(Thread):
         if len(buffer) != self.__frame_raw_data_size:
             return False, None
 
-        y, u, v = self.__split_yuv_channels_planar_mode(buffer)
-        converted_frame = self.__444yuv_to_rgb(y, u, v)
+        y, u, v = self.__extract_yuv_planes(buffer)
+        converted_frame = self.__concatenate_planes_to_444yuv_frame(y, u, v)
 
         return True, converted_frame
 
