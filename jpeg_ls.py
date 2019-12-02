@@ -8,6 +8,7 @@ from golomb import GolombEncoder
 import cv2 as cv
 
 parser = argparse.ArgumentParser()
+parser.add_argument("action", choices=['enc', 'dec'], help="set the input file")
 parser.add_argument("input_file", help="set the input file")
 
 args = parser.parse_args()
@@ -28,7 +29,7 @@ class JpegLs(object):
             Initializes a JPEG-LS encoder object
         """
         self.__input_file_path = input_file_path
-        self.__encoded_file_path = input_file_path + '_encoded'
+        self.__output_file = input_file_path + "_" + args.action
 
     def encode_file(self):
         """
@@ -36,8 +37,8 @@ class JpegLs(object):
         :return:
         """
         self.__yuv_file = YuvDecoder(self.__input_file_path)
-        self.__output_file = GolombEncoder(None, self.__encoded_file_path)
-        print('Encoded file:', self.__encoded_file_path)
+        self.__output_file = GolombEncoder(None, self.__output_file)
+        print('Encoded file:', self.__output_file)
         self.__output_file.write_int(self.__yuv_file.frame_width)
         self.__output_file.write_int(self.__yuv_file.frame_height)
         # 0 = 4:4:4, 1 = 4:2:2, 2 = 4:2:0
@@ -57,7 +58,7 @@ class JpegLs(object):
             counter += 1
 
         original_file_size = os.stat(self.__input_file_path).st_size
-        encoded_file_size = os.stat(self.__encoded_file_path).st_size
+        encoded_file_size = os.stat(self.__output_file).st_size
 
         print('Compression ratio: ', round(encoded_file_size / original_file_size * 100.0, 2))
     __m_param = 0
@@ -147,5 +148,9 @@ class JpegLs(object):
 
 
 j = JpegLs(args.input_file)
-j.encode_file()
-# j.decode_file()
+
+if args.action == 'enc':
+    j.encode_file()
+
+elif args.action == 'dec':
+    j.decode_file()
