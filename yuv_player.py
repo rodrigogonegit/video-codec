@@ -1,9 +1,12 @@
 import logging
+import math
 import re
+import time
 from threading import Thread
 
 import cv2 as cv
 import numpy as np
+
 
 class YuvDecoder(Thread):
     frame_width = 0
@@ -15,7 +18,9 @@ class YuvDecoder(Thread):
     __first_frame_raw_data_position = 0
     __frame_raw_data_size = 0
     __convert_to_bgr = False
-    frames = []
+    y_values = []
+    u_values = []
+    v_values = []
 
     def __init__(self, input_file_path, convert_to_bgr=False):
         """
@@ -49,7 +54,11 @@ class YuvDecoder(Thread):
         self.__file_object.seek(self.__first_frame_raw_data_position)
         self.number_of_frames = 0
 
-        while self.__file_object.readline():
+        while True:
+            if not self.__file_object.read(self.__frame_raw_data_size):
+                break
+
+            self.__file_object.readline()
             self.number_of_frames += 1
 
         # Restore file pointer
@@ -99,7 +108,7 @@ class YuvDecoder(Thread):
         print('Aspect Ratio:\t', self.__pixel_aspect_ratio)
         print('Color space\t', self.color_space)
         print('Frame size (raw data):', self.__frame_raw_data_size)
-        print('Position of first raw', self.__first_frame_raw_data_position)
+        print('Position of first raw:', self.__first_frame_raw_data_position)
 
     def determine_color_space_by_frame_size(self):
         """
@@ -164,6 +173,53 @@ class YuvDecoder(Thread):
         self.__file_object.readline()
         return raw_frame_buffer
 
+    def read_frame(self):
+        """
+            Reads the frame and returns NON-Converted (to 4:4:4) YUV planes
+        :return: returns the Y, U, V planes with no reshaping. Depends on file sampling method.
+        """
+        buffer = self.__get_next_yuv_frame()
+        if len(buffer) != self.__frame_raw_data_size:
+            return None, None, None, False
+
+        buf = np.frombuffer(buffer, dtype=np.uint8)
+
+        plane_size = self.frame_height * self.frame_width
+
+        uv_sizes_dict = {
+            "4:4:4": plane_size,
+            "4:2:2": int(plane_size / 2),
+            "4:2:0": int(plane_size / 4),
+        }
+
+        y_plane = buf[0:plane_size]
+        u_plane = buf[plane_size:plane_size + uv_sizes_dict[self.color_space]]
+        v_plane = buf[plane_size + uv_sizes_dict[self.color_space]:plane_size + uv_sizes_dict[self.color_space] * 2]
+
+        # Reshape planes
+        y_plane.shape = (self.frame_height, self.frame_width)
+
+        if self.color_space == '4:2:2':
+            # Half the columns
+            columns = math.ceil(self.frame_width / 2)
+
+            u_plane.shape = (self.frame_height, columns)
+            v_plane.shape = (self.frame_height, columns)
+
+        elif self.color_space == '4:2:0':
+            # Half the columns and half the rows
+            columns = math.ceil(self.frame_width / 2)
+            rows = math.ceil(self.frame_height / 2)
+
+            u_plane.shape = (rows, columns)
+            v_plane.shape = (rows, columns)
+
+        elif self.color_space == '4:4:4':
+            u_plane.shape = (self.frame_height, self.frame_width)
+            v_plane.shape = (self.frame_height, self.frame_width)
+
+        return y_plane, u_plane, v_plane, True
+
     def __concatenate_planes_to_444yuv_frame(self, y_plane, u_plane, v_plane):
         """
             Builds a YUV frame from the 3 planes
@@ -171,10 +227,11 @@ class YuvDecoder(Thread):
         """
         np.set_printoptions(formatter={'int': hex})
 
-        yuv = np.concatenate((y_plane, u_plane, v_plane), axis=2)
+        y_plane.shape = (self.frame_height, self.frame_width, 1)
+        u_plane.shape = (self.frame_height, self.frame_width, 1)
+        v_plane.shape = (self.frame_height, self.frame_width, 1)
 
-        # Save processed YUV planes
-        self.frames.append(yuv)
+        yuv = np.concatenate((y_plane, u_plane, v_plane), axis=2)
 
         # Use OpenCV to convert color since the implementation is MUCH faster
         if self.__convert_to_bgr:
@@ -212,10 +269,6 @@ class YuvDecoder(Thread):
             u_plane = np.repeat(u_plane, 2, axis=0).repeat(2, axis=1)
             v_plane = np.repeat(v_plane, 2, axis=0).repeat(2, axis=1)
 
-        y_plane.shape = (self.frame_height, self.frame_width, 1)
-        u_plane.shape = (self.frame_height, self.frame_width, 1)
-        v_plane.shape = (self.frame_height, self.frame_width, 1)
-
         return y_plane, u_plane, v_plane
 
     def next_frame(self):
@@ -223,14 +276,36 @@ class YuvDecoder(Thread):
             Gets the next frame from the stream as RGB. Returns (False, None) if EOF.
         :return:
         """
-        buffer = self.__get_next_yuv_frame()
-        if len(buffer) != self.__frame_raw_data_size:
-            return False, None
+        while True:
+            if self.grabbed:
+                buffer = self.__get_next_yuv_frame()
+                if len(buffer) != self.__frame_raw_data_size:
+                    self.frame = False, False
+                    self.stopped = True
+                    break
 
-        y, u, v = self.__extract_yuv_planes(buffer)
-        converted_frame = self.__concatenate_planes_to_444yuv_frame(y, u, v)
+                y, u, v = self.__extract_yuv_planes(buffer)
 
-        return True, converted_frame
+                # Save YUV planes now because they will be reshaped from (height, width) to (height, width, 1)
+
+                converted_frame = self.__concatenate_planes_to_444yuv_frame(y, u, v)
+
+                self.frame = True, converted_frame
+                self.grabbed = False
+
+            if self.stopped:
+                break
+
+            time.sleep(1/1000)
+
+    def get_frame(self):
+        self.grabbed = True
+        return self.frame
+
+    def run(self):
+        self.stopped = False
+        self.grabbed = True
+        self.next_frame()
 
     def close(self):
         """
@@ -246,19 +321,21 @@ class YuvPlayer(object):
             Creates a video player object with the specified input file path
         """
         self.__yuv_video = YuvDecoder(input_file_path, convert_to_bgr=True)
+        print('After INSTANTIATION')
+        self.__yuv_video.start()
 
     def play_video(self):
         """
             Plays the specified stream
         :return:
         """
-        self.__yuv_video.start()
         cv.namedWindow('Planes', cv.WINDOW_NORMAL)
         cv.resizeWindow('Planes', self.__yuv_video.frame_width, self.__yuv_video.frame_height)
 
         inter_frame_delay = int(1000 / self.__yuv_video.frame_rate)
+
         while True:
-            (ret, frame) = self.__yuv_video.next_frame()
+            (ret, frame) = self.__yuv_video.get_frame()
 
             if not ret:
                 break
@@ -266,5 +343,10 @@ class YuvPlayer(object):
             cv.imshow('Planes', frame)
             cv.waitKey(inter_frame_delay)
 
+        self.__yuv_video.join()
+
     def avg_list(self, lst):
         return round(sum(lst) / len(lst) * 1000, 2)
+
+# v = YuvPlayer('videos/ducks_take_off_444_720p50.y4m', convert_to_bgr=True)
+# v.play_video()
