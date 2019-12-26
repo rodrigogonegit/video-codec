@@ -2,6 +2,8 @@ import math
 from bit_stream import BitStream, OpenMode
 import binascii
 import os
+import logging
+
 
 class GolombEncoder(object):
     """
@@ -11,21 +13,28 @@ class GolombEncoder(object):
     __output_file = None
     __input_file_size = -1
 
-    def __init__(self, input_file_path, output_file_path):
+    def __init__(self, input_file, output_file):
+        """Initializes the GolombEncoder object
+        
+        Arguments:
+            input_file {BitStream} -- BitStream object representing the intput file
+            output_file {BitStream} -- BitStream object representing the output file
         """
+        if input_file != None:
+            self.__input_file = input_file
 
-        :param input_file_path:
-        :param output_file_path:
-        """
+        self.__output_file = output_file
 
+        self.__logger = logging.getLogger(__name__)
+        self.__logger.debug('TESTE GOLOMB HUEHUEHU')
         # Open file handlers
-        if input_file_path != None:
-            self.__input_file = BitStream(input_file_path, OpenMode.READ)
+        # if input_file_path != None:
+        #     self.__input_file = BitStream(input_file_path, OpenMode.READ)
 
-        self.__output_file = BitStream(output_file_path, OpenMode.WRITE)
+        # self.__output_file = BitStream(output_file_path, OpenMode.WRITE)
 
-        if input_file_path != None:
-            self.__input_file_size = os.stat(input_file_path).st_size
+        # if input_file_path != None:
+            # self.__input_file_size = os.stat(input_file_path).st_size
 
     def close(self):
         """
@@ -38,24 +47,15 @@ class GolombEncoder(object):
 
         self.__output_file.close()
 
-    def write_header(self, m_value):
-        self.__output_file.write_int(int(m_value), 4)
-
-    def write_int(self, i):
-        self.__output_file.write_int(int(i), 4)
-
-    def read_int(self):
-        return self.__input_file.read_int(4)
-
-    def encode(self, m, report_progress_callback=None):
+    def encode_input_file(self, m, report_progress_callback=None):
         """
         :return:
         """
         self.__output_file.set_padding_mode(False)
         # Write header to output file. TODO: write header specification
         # self.__output_file.write_int(m, 4)
-        self.write_header(m)
-        print(m)
+        self.write_int(m)
+
         i = self.__input_file.read_int(1)
         counter = 0.0
 
@@ -71,20 +71,18 @@ class GolombEncoder(object):
         self.__input_file.close()
         self.__output_file.close()
 
-    def golomb_encode(self, input, m):
-        #print('Before:', input)
-        if input > 0:
-            input = input * 2
+    def encode_value(self, input, m):
+        if input >= 0:
+            self.__output_file.write_bit(0)
 
-        elif input < 0:
-            input = (input * -2) - 1
-
-        #print('After:', input)
+        else:
+            self.__output_file.write_bit(1)
+            input = input * -1
+        
         b = int(math.ceil(math.log(m, 2)))
-        # calculation of quotient
         q = int(math.floor(input / m))
-        # calculation of
         r = input - q * m
+
         # Calculate the fist bits with the use o q parameter, with unitary code
         # example: q = 3 -> first = 1110
         str_repr = ''
@@ -97,12 +95,13 @@ class GolombEncoder(object):
         str_repr += '0'
         encode = int(math.pow(2, b) - m)
 
+        binary_representation_with_fixed_len = None
+
         # Caso o valor de r seja menor que (2^b)-m vamos usar b-1 bits para representar esses valores
         if (r < encode):
             using_bits = b - 1
             binary_representation_with_fixed_len = ("{0:0" + str(using_bits) + "b}").format(r)
 
-            #print('BIN REPR:', str_repr  + binary_representation_with_fixed_len)
             for c in binary_representation_with_fixed_len:
                 self.__output_file.write_bit(int(c))
 
@@ -113,33 +112,52 @@ class GolombEncoder(object):
             x = int(r + math.pow(2, b) - m)
 
             binary_representation_with_fixed_len = ("{0:0" + str(using_bits) + "b}").format(x)
-            #print('BIN REPR:', str_repr + binary_representation_with_fixed_len)
 
             for c in binary_representation_with_fixed_len:
                 self.__output_file.write_bit(int(c))
 
-    def set_padding_mode(self, with_zeros=True):
-        self.__output_file.set_padding_mode(with_zeros)
+        return str_repr + binary_representation_with_fixed_len
 
-    def decode(self, report_progress_callback=None, returnList=False):
+    def decode(self, m, values_count,report_progress_callback=None, returnList=False):
+        """Decodes the input file and returns or writes the values
+        
+        Arguments:
+            m {int} -- Golomb Coder parameter
+            values_count {int} -- how many values you want to decode. If you fedd it -1, everything will be read.
+        
+        Keyword Arguments:
+            report_progress_callback {lambda} -- callback reporting progress (default: {None})
+            returnList {bool} -- if set, the result will not be written to file, but instead return as a list (default: {False})
+        
+        Returns:
+            [Boolean or List] -- returns Boolean in file writing mode and list otherwise
         """
-        :return:
-        """
+        if self.__input_file.has_reached_eof():
+            print('EOF REACHED!')
+            return False
+        
         # Open file handlers
-        self.__output_file.set_padding_mode(True)
-        m = self.__input_file.read_int(4)
+        # self.__output_file.set_padding_mode(True)
         b = math.ceil(math.log(m, 2))  # ceil ( log2 (m) )
         decode = int(math.pow(2, b) - m)
 
         counter = 0.0
 
         rtn_list = []
+        expected_num_of_values = 0
 
-        while True:
+        while int(values_count - counter) != 0:
             num_of_ones = 0
 
             if report_progress_callback:
                 report_progress_callback(counter/self.__input_file_size*100.0)
+
+            signal_bit = self.__input_file.read_bit()
+
+            # Should not happen. But, sanity.
+            if signal_bit == -1:
+                self.__logger.warning('Got -1 on reading signal bit. SHOULD NOT HAPPEN.')
+                break
 
             bit = self.__input_file.read_bit()
 
@@ -154,9 +172,13 @@ class GolombEncoder(object):
             num_of_bits_to_read = b - 1
 
             x = self.__input_file.read_n_bits(num_of_bits_to_read)
-            int_x = int(x, 2)
-            result = -1
 
+            if x == None or x == '':
+                break
+
+            int_x = int(x, 2)
+
+            result = -1
             if int_x < decode:
                 result = num_of_ones * m + int_x
 
@@ -164,13 +186,9 @@ class GolombEncoder(object):
                 int_x = int_x * 2 + self.__input_file.read_bit()
                 result = num_of_ones * m + int_x - decode
 
-            if result % 2 == 0: #Positive
-                result = int( result / 2 )
+            if signal_bit == 1:
+                result = result * -1
 
-            else:
-                result = int( (result + 1) / 2 * -1 )
-
-            # print(result)
             if not returnList:
                 self.__output_file.write_int(result, 1)
 
@@ -179,8 +197,8 @@ class GolombEncoder(object):
 
             counter += 1
 
-        self.__input_file.close()
-        self.__output_file.close()
-
         if returnList:
             return rtn_list
+        
+        else:
+            return True

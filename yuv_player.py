@@ -29,13 +29,12 @@ class YuvDecoder(Thread):
         :param convert_to_bgr:
         """
         Thread.__init__(self)
-        logging.basicConfig(format='[%(asctime)s][%(levelname)s]: %(message)s', datefmt='%H:%M:%S')
         self.__logger = logging.getLogger(__name__)
-        self.__logger.setLevel(logging.DEBUG)
+        # self.__logger.setLevel(logging.DEBUG)
         self.__input_file_path = input_file_path
         self.__convert_to_bgr = convert_to_bgr
         self.__file_object = open(self.__input_file_path, 'rb')
-        self.__read_header()
+        self.raw_header = self.__read_header()
         self.__calculate_number_of_frames()
 
         self.__stopped = False
@@ -70,7 +69,8 @@ class YuvDecoder(Thread):
             Interprets the header of the YUV file
         :return:
         """
-        header_string = self.__file_object.readline().decode('utf-8')
+        header = self.__file_object.readline()
+        header_string = header.decode('utf-8')
         print(header_string)
         # Ignore first letter
         self.frame_width = int(re.findall('W\d+', header_string)[0][1:])
@@ -99,6 +99,8 @@ class YuvDecoder(Thread):
 
         # Restore
         self.__file_object.seek(self.__first_frame_raw_data_position)
+
+        return header
 
         # Color space parameter is missing?
         print('FourCC:\t\t', header_string[:4])
@@ -176,7 +178,7 @@ class YuvDecoder(Thread):
     def read_frame(self):
         """
             Reads the frame and returns NON-Converted (to 4:4:4) YUV planes
-        :return: returns the Y, U, V planes with no reshaping. Depends on file sampling method.
+        :return: returns the reshaped Y, U, V planes. Shape depends on file sampling method.
         """
         buffer = self.__get_next_yuv_frame()
         if len(buffer) != self.__frame_raw_data_size:
@@ -341,7 +343,7 @@ class YuvPlayer(object):
                 break
 
             cv.imshow('Planes', frame)
-            cv.waitKey(inter_frame_delay)
+            cv.waitKey(0)
 
         self.__yuv_video.join()
 

@@ -29,10 +29,11 @@ class BitStream(object):
             Constructor of BitStream. Note: logging level should be set using the appropriate cmd flag (Python3 logging
         --log=INFO/DEBUG/etc)
         :param file_path: string representing the file path to be opened
-        :param open_mode: specify weather to read or write to the file
+        :param open_mode: specify wether to read or write to the file
         """
 
         self.__logger = logging.getLogger(__name__)
+        # self.__logger.setLevel(logging.DEBUG)
         self.__open_mode = open_mode
         rwb = None
         self.__current_byte_position = 0
@@ -184,7 +185,7 @@ class BitStream(object):
             self.__logger.critical('OpenMode is not READ. read_bit not performed.')
             return -1
 
-        if self.__idx == 8:
+        if self.__idx >= 8:
             # Read next byte from file and update buffer
             # Reset pointer to first bit
             self.__idx = 0
@@ -211,12 +212,12 @@ class BitStream(object):
 
         # lst = []
         bit_sequence_str = ''
-
         for i in range(0, num_of_bits):
             bit = self.read_bit()
 
             if bit == -1:
                 return bit_sequence_str
+
             bit_sequence_str = bit_sequence_str + str(bit)
 
         return bit_sequence_str
@@ -229,7 +230,16 @@ class BitStream(object):
         if self.__open_mode == OpenMode.WRITE:
             self.flush()
 
+        elif self.__open_mode == OpenMode.READ:
+            self.__file_buffer == None
+            self.__byte_buffer == None
+
         self.__file_object.close()
+
+    def __del__(self):
+        if self.__open_mode == OpenMode.WRITE:
+            self.flush()
+
 
     def read_int(self, n_bytes):
         """
@@ -281,7 +291,7 @@ class BitStream(object):
             self.__logger.critical('OpenMode is not WRITE. write_int not performed.')
             return
 
-        # self.__file_object.write(struct.pack('b', number))
+        # self.__file_object.write(struct.pack('B', number))
         self.__file_object.write(number.to_bytes(n_bytes, byteorder='big'))
 
     def write_signed_int(self, number):
@@ -294,3 +304,42 @@ class BitStream(object):
             return
 
         self.__file_object.write(struct.pack('b', number))
+
+    def write_bytes(self, bs):
+        if self.__open_mode != OpenMode.WRITE:
+            self.__logger.critical('OpenMode is not WRITE. write_int not performed.')
+            return
+
+        self.__file_object.write(bs)
+
+    def write_str(self, string):
+        if self.__open_mode != OpenMode.WRITE:
+            self.__logger.critical('OpenMode is not WRITE. write_int not performed.')
+            return
+
+        self.__file_object.write(string.encode('utf-8'))
+
+    def read_bytes(self, num_of_bytes):
+        if self.__open_mode != OpenMode.READ:
+            self.__logger.critical('OpenMode is not READ. readint not performed.')
+            return
+
+        sequence = []
+        for x in range(0, num_of_bytes):
+            if not self.__read_byte():
+                return None
+
+            sequence.append(self.__byte_buffer)
+
+        self.__idx += 8
+
+        return sequence
+
+    def has_reached_eof(self):
+        if self.__current_byte_position == len(self.__file_buffer) and self.__idx >= 8:
+            return True
+
+        return False
+
+        
+
