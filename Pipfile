@@ -8,6 +8,11 @@ verify_ssl = true
 [packages]
 opencv-python = "*"
 imageio = "*"
+matplotlib = "*"
+colorama = "*"
+golomb-coding = "*"
+minimal-binary-coding = "*"
+unary-coding = "*"
 
 [requires]
 python_version = "3.7"

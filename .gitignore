@@ -1,2 +1,12 @@
 videos/*
 computer-vision/
+__pycache__/*
+.idea/*
+.vscode/
+*y4m*
+*.bin
+*.txt
+*.rgb
+test*
+*.avi
+*.mp4

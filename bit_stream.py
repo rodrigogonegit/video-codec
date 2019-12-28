@@ -122,7 +122,7 @@ class BitStream(object):
 
         self.__idx = 0
 
-    def write_bit(self, bit: int):
+    def write_bit(self, bit: str):
         """
             Writes one bit to file. Note: the actual content is only written when the buffer has been filled or flush was called.
         :param bit:
@@ -134,17 +134,17 @@ class BitStream(object):
 
         self.__idx = self.__idx + 1
 
-        if bit == 0:
+        if bit == '0':
             self.__byte_buffer = self.__byte_buffer << 1
 
-        elif bit == 1:
+        elif bit == '1':
             self.__byte_buffer = self.__byte_buffer << 1
             self.__byte_buffer = self.__byte_buffer | 1
 
         else:
             self.__logger.error('Unexpected bit value: {}. Ignoring.'.format(bit))
 
-        if self.__idx == 8:
+        if self.__idx >= 8:
             self.__write_byte()
 
     def write_n_bits(self, bits: [int]):
@@ -167,13 +167,12 @@ class BitStream(object):
         """
 
         if self.__current_byte_position >= len(self.__file_buffer):
-            self.__logger.info('Reached end of file. Cannot read.')
+            self.__logger.info('Reached end of file. Cannot read further.')
             self.__byte_buffer = None
             return False
 
         self.__byte_buffer = self.__file_buffer[self.__current_byte_position]
         self.__current_byte_position = self.__current_byte_position + 1
-        self.__logger.debug('Read one byte from file buffer')
         return True
 
     def read_bit(self) -> int:

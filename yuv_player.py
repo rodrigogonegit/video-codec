@@ -215,6 +215,7 @@ class YuvDecoder(Thread):
 
             u_plane.shape = (rows, columns)
             v_plane.shape = (rows, columns)
+            
 
         elif self.color_space == '4:4:4':
             u_plane.shape = (self.frame_height, self.frame_width)
